@@ -1,101 +1,86 @@
 import streamlit as st
-import soundfile as sf
 import numpy as np
-from scipy import signal
+from scipy.io import wavfile
 import matplotlib.pyplot as plt
+from scipy import signal
 import tempfile
 import os
 
 def analyze_audio(audio_path):
-    """Función simple para analizar audio"""
-    # Cargar el archivo de audio
-    audio_data, sample_rate = sf.read(audio_path)
-    
-    # Si el audio es estéreo, convertir a mono
-    if len(audio_data.shape) > 1:
-        audio_data = np.mean(audio_data, axis=1)
-    
-    # Calcular la frecuencia fundamental
-    frame_size = 2048
-    hop_length = 512
-    
-    # Calcular espectrograma
-    frequencies, times, Sxx = signal.spectrogram(audio_data, fs=sample_rate,
-                                               nperseg=frame_size,
-                                               noverlap=hop_length)
-    
-    # Encontrar frecuencias dominantes
-    dominant_freqs = []
-    for time_idx in range(Sxx.shape[1]):
-        if np.max(Sxx[:, time_idx]) > 0.01:  # Umbral de energía
-            freq_idx = np.argmax(Sxx[:, time_idx])
-            dominant_freqs.append(frequencies[freq_idx])
-    
-    # Calcular estadísticas
-    if dominant_freqs:
-        avg_freq = np.mean(dominant_freqs)
-        # Clasificación simple basada en la frecuencia promedio
-        voice_type = "Masculina" if avg_freq < 150 else "Femenina"
+    """Análisis básico de audio"""
+    try:
+        # Leer el archivo WAV
+        sample_rate, audio_data = wavfile.read(audio_path)
         
-        return {
-            "tipo_voz": voice_type,
-            "frecuencia_promedio": avg_freq,
-            "frecuencias": dominant_freqs,
-            "audio_data": audio_data,
-            "sample_rate": sample_rate
-        }
-    return None
+        # Convertir a mono si es estéreo
+        if len(audio_data.shape) > 1:
+            audio_data = np.mean(audio_data, axis=1)
+        
+        # Normalizar los datos
+        audio_data = audio_data.astype(float) / np.max(np.abs(audio_data))
+        
+        # Calcular el espectrograma
+        frequencies, times, Sxx = signal.spectrogram(audio_data, fs=sample_rate)
+        
+        # Encontrar frecuencias dominantes
+        dominant_frequencies = []
+        for time_idx in range(Sxx.shape[1]):
+            freq_idx = np.argmax(Sxx[:, time_idx])
+            if Sxx[freq_idx, time_idx] > 0.1:  # Umbral de energía
+                dominant_frequencies.append(frequencies[freq_idx])
+        
+        # Análisis básico
+        if dominant_frequencies:
+            avg_freq = np.mean(dominant_frequencies)
+            voice_type = "Masculina" if avg_freq < 150 else "Femenina"
+            
+            return {
+                "tipo_voz": voice_type,
+                "frecuencia_promedio": avg_freq,
+                "audio_data": audio_data,
+                "sample_rate": sample_rate
+            }
+            
+    except Exception as e:
+        st.error(f"Error en el análisis: {str(e)}")
+        return None
 
 def main():
-    st.title("📊 Analizador de Voz Simple")
+    st.title("🎤 Analizador de Voz Básico")
     
     st.write("""
-    ### Sube un archivo de audio para analizar
-    Acepta archivos WAV y MP3
+    ### Sube un archivo de audio WAV para analizar
+    Nota: Por favor, asegúrate de que el archivo esté en formato WAV
     """)
     
-    uploaded_file = st.file_uploader("Selecciona un archivo de audio", type=['wav', 'mp3'])
+    uploaded_file = st.file_uploader("Selecciona un archivo WAV", type=['wav'])
     
     if uploaded_file:
-        # Guardar el archivo temporalmente
+        # Guardar archivo temporal
         with tempfile.NamedTemporaryFile(delete=False, suffix='.wav') as temp_file:
             temp_file.write(uploaded_file.getvalue())
             temp_path = temp_file.name
         
         try:
-            # Analizar el audio
             with st.spinner("Analizando audio..."):
                 results = analyze_audio(temp_path)
             
             if results:
                 st.success("¡Análisis completado!")
                 
-                # Mostrar resultados
+                # Mostrar resultados básicos
                 st.subheader("Resultados:")
                 st.write(f"**Tipo de voz detectada:** {results['tipo_voz']}")
                 st.write(f"**Frecuencia promedio:** {results['frecuencia_promedio']:.2f} Hz")
                 
-                # Crear gráfica de forma de onda
-                fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 8))
-                
-                # Forma de onda
+                # Crear visualización simple
+                fig, ax = plt.subplots(figsize=(10, 4))
                 time = np.arange(len(results['audio_data'])) / results['sample_rate']
-                ax1.plot(time, results['audio_data'])
-                ax1.set_title('Forma de Onda')
-                ax1.set_xlabel('Tiempo (s)')
-                ax1.set_ylabel('Amplitud')
-                
-                # Gráfica de frecuencias
-                ax2.plot(results['frecuencias'])
-                ax2.set_title('Frecuencias Dominantes')
-                ax2.set_ylabel('Frecuencia (Hz)')
-                ax2.set_xlabel('Fragmento de Tiempo')
-                
-                plt.tight_layout()
+                ax.plot(time, results['audio_data'])
+                ax.set_title('Forma de Onda del Audio')
+                ax.set_xlabel('Tiempo (segundos)')
+                ax.set_ylabel('Amplitud')
                 st.pyplot(fig)
-                
-            else:
-                st.error("No se pudo analizar el audio. Intenta con otro archivo.")
                 
         except Exception as e:
             st.error(f"Error al procesar el archivo: {str(e)}")
@@ -108,13 +93,14 @@ def main():
                 pass
     
     st.markdown("""
-    ### Cómo usar:
-    1. Sube un archivo de audio (WAV o MP3)
+    ### Instrucciones:
+    1. Sube un archivo de audio en formato WAV
     2. Espera el análisis
-    3. Revisa los resultados y gráficas
+    3. Revisa los resultados y la gráfica
     
-    ### Recomendaciones:
-    - Usa grabaciones claras
+    ### Notas:
+    - Solo acepta archivos WAV
+    - Usa grabaciones claras para mejores resultados
     - Evita ruido de fondo
     - Duración recomendada: 5-30 segundos
     """)
